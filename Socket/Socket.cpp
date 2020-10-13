@@ -1,34 +1,38 @@
-// Socket.cpp: ���������� ����� ����� ��� ����������� ����������.
-//
-// WsaData - ������������ ������� (Microsoft)
-// wsaData - ��������� ������� (Oracle)
-// wsa_data - ������� ������� (Python)
-// wsa-data - ����� �������
-// wsock32.lib
+// Socket.cpp: Http сервер на сокетах.
+
+// Виды нотаций:
+// WsaData - паскалевская нотация (Microsoft)
+// wsaData - верблюжья нотация (Oracle)
+// wsa_data - змеиная нотация (Python)
+// wsa-data - кебаб нотация
+
+// Если проблемы со сборкой в Visual Studio 2012:
+// Проект -> Свойства: Socket... ->
+// Свойства конфигурации -> Компоновщик -> Все параметры -> Дополнительные зависимости -> Изменить
+// Вставить в пустое поле: wsock32.lib
 
 #include "stdafx.h"
 #include "winsock.h"
 
-WSADATA WsaData;
-SOCKET servsocket;
+SOCKET serversocket;
+SOCKET clientsocket;
+SOCKADDR_IN socketaddress;
 
-// ����������� � �������
-int StartWinSock()
+// Подключение к сокетам
+void StartWinSock()
 {
-	int err = WSAStartup(0x0101, &WsaData);
-	if (err == SOCKET_ERROR)
+	WSADATA WsaData;
+	if (WSAStartup(0x0101, &WsaData) == SOCKET_ERROR)
 	{
-		printf("WSAStartup() error: %ld\n", GetLastError());
-		return 1;	
+		printf("WSAStartup() error: %ld\n", GetLastError());	
 	}
 	else 
 	{
 		printf("Winsock init OK\n");
-		return 0;
 	}
 }
 
-// ��������� ����� ������
+// Получение имени машины
 void GetHostName()
 {
 	char chInfo[64];
@@ -39,13 +43,14 @@ void GetHostName()
 	}
 	else
 	{
-		printf("Hostname: %s\n", chInfo);
+		printf("Hostname: %s OK\n", chInfo);
 	}
 }
 
-// ������� �������
+// Очистка сокетов
 void CleanWinSock()
 {
+	closesocket(serversocket);
 	if (WSACleanup())
 	{
 		printf("Error cleanup\n");
@@ -57,11 +62,11 @@ void CleanWinSock()
 	system("pause");
 }
 
-// �������� ������
+// Создание сокета
 void CreateSocket()
 {
-	servsocket = socket(PF_INET, SOCK_STREAM, 0);
-	if (servsocket == INVALID_SOCKET)
+	serversocket = socket(AF_INET, SOCK_STREAM, 0);
+	if (serversocket == INVALID_SOCKET)
 	{
 		printf("Error on create socket\n");
 		exit(1);
@@ -72,17 +77,25 @@ void CreateSocket()
 	}
 }
 
+// Связывание сокета с адресами
 void BindSocket()
 {
-	SOCKADDR_IN socketaddress;
 	socketaddress.sin_family = AF_INET;
 	socketaddress.sin_addr.s_addr = INADDR_ANY;
-	socketaddress.sin_port = 80;
+	socketaddress.sin_port = htons(8080);
+	int reuse = 1;
 
-	if (bind(servsocket, (LPSOCKADDR)&socketaddress, sizeof(socketaddress)) == SOCKET_ERROR)
+	if (setsockopt(serversocket, SOL_SOCKET, SO_REUSEADDR, (const char*)&reuse, sizeof(reuse)))
+	{
+		printf("Set sock opt\n");
+	}
+	else
+	{
+		printf("Set sock opt OK\n");
+	}
+	if (bind(serversocket, (LPSOCKADDR)&socketaddress, sizeof(socketaddress)) == SOCKET_ERROR)
 	{
 		printf("Error bind socket\n");
-		//exit(1);
 	}
 	else
 	{
@@ -90,33 +103,65 @@ void BindSocket()
 	}
 }
 
+// Ожидание входящих запросов
 void WaitSocket()
 {
 	#define QUEUE_SIZE 5
-	if (listen(servsocket, QUEUE_SIZE) == SOCKET_ERROR)
+	if (listen(serversocket, QUEUE_SIZE) == SOCKET_ERROR)
 	{
 		printf("Error listen socket\n");
-		//exit(1);
 	}
 	else
 	{
-		printf("Wait for connection\n");
+		printf("Wait for connection ... ");
 	}
 }
 
-int _tmain(int argc, _TCHAR* argv[])
+// Отправляем данные клиенту 
+void SendData(LPSTR buff)
 {
-	if (StartWinSock())
+	if (send(clientsocket, (LPSTR) buff, strlen(buff), 0) == SOCKET_ERROR) 
 	{
-		return 1;
+		printf("Error send data\n");
 	}
+	else
+	{
+		printf("Send: ");
+		printf(buff);
+		printf(" OK\n");
+	}
+}
+
+// Соединение клиента и сервера установлено
+void ServerAccept()
+{
+	int length = sizeof(socketaddress);
+	clientsocket = accept(serversocket, (LPSOCKADDR)&socketaddress, &length);
+	if (clientsocket == INVALID_SOCKET)
+	{
+		printf("OK\n");
+		printf("Invalid client socket\n");
+		return;
+	}
+	else
+	{
+		printf("OK\n");
+		printf("Accept client socket OK\n");
+	}
+	LPSTR buff = "HTTP/1.1 200 OK\r\nContent-Length: 58\r\nContent-type: text/html\r\n\r\n<html><head></head><body><p>Hello world!</p></body></html>";
+	SendData(buff);
+	closesocket(clientsocket);
+}
+
+
+void _tmain(int argc, _TCHAR* argv[])
+{
+	StartWinSock();
 	GetHostName();
 	CreateSocket();
 	BindSocket();
 	WaitSocket();
-	closesocket(servsocket);
+	ServerAccept();
 	CleanWinSock();
-
-	return 0;
 }
 
